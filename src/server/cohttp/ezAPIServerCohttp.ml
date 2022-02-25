@@ -50,9 +50,9 @@ let debug_cohttp req =
             (String.split_on_char ',' v))
         (Request.headers req))
 
-let dispatch ?geoip ?catch s io req body =
+let dispatch ~geoip ?catch s io req body =
   let time = GMTime.time () in
-  (match geoip with Some _ -> register_ip req io time | None -> ());
+  (if geoip then (register_ip req io time));
   debug_cohttp req;
   let headers = headers_from_cohttp req in
   let version = version_from_cohttp req in
@@ -83,11 +83,11 @@ let dispatch ?geoip ?catch s io req body =
     Server.respond_string ~headers ~status ~body () >|= fun (r, b) ->
     `Response (r, b)
 
-let create_server ?geoip ?catch server_port server_kind =
+let create_server ~geoip ?catch server_port server_kind =
   let s = { server_port; server_kind } in
   Timings.init (GMTime.time ()) @@ Doc.nservices ();
   ignore @@ Doc.all_services_registered ();
-  let callback conn req body = dispatch ?geoip ?catch s (fst conn) req body in
+  let callback conn req body = dispatch ~geoip ?catch s (fst conn) req body in
   let on_exn = function
     | Unix.Unix_error (Unix.EPIPE, _, _) -> ()
     | exn -> EzDebug.printf "Server Error: %s" (Printexc.to_string exn) in
@@ -97,5 +97,5 @@ let create_server ?geoip ?catch server_port server_kind =
     ~mode:(`TCP (`Port server_port))
     (Server.make_response_action ~callback ())
 
-let server ?geoip ?catch servers =
-  Lwt.join (List.map (fun (port,kind) -> create_server ?geoip ?catch port kind) servers)
+let server ~geoip ?catch servers =
+  Lwt.join (List.map (fun (port,kind) -> create_server ~geoip ?catch port kind) servers)
