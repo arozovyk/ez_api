@@ -231,13 +231,14 @@ let register_ip req time = function
   | Unix.ADDR_UNIX _ -> ()
 
 let connection_handler :
+  ?geoip: 'a option ->
   ?catch:(string -> exn -> string Answer.t Lwt.t) ->
   server -> Unix.sockaddr -> Lwt_unix.file_descr -> unit Lwt.t =
   fun ?catch s sockaddr fd ->
   let request_handler sockaddr reqd =
     let req = Reqd.request reqd in
     let time = GMTime.time () in
-    register_ip req time sockaddr;
+    (match geoip with Some _ -> register_ip req io time | None -> ());
     let headers = headers_from_httpaf req in
     let version = version_from_httpaf req in
     let path_str, path, content_type, r =
@@ -301,7 +302,7 @@ let connection_handler :
     sockaddr
     fd
 
-let create_server ?catch ~max_connections server_port server_kind =
+let create_server ?geoip ?catch ~max_connections server_port server_kind =
   let s = { server_port; server_kind } in
   Timings.init (GMTime.time ()) @@ Doc.nservices ();
   ignore @@ Doc.all_services_registered ();
@@ -310,13 +311,13 @@ let create_server ?catch ~max_connections server_port server_kind =
   establish_server_with_client_socket
     ~nb_max_connections:max_connections
     listen_address (fun sockaddr fd ->
-        connection_handler ?catch s sockaddr fd) >>= fun _server ->
+        connection_handler ?geoip ?catch s sockaddr fd) >>= fun _server ->
   Lwt.return_unit
 
-let server ?catch servers =
+let server ?geoip ?catch servers =
   let max_connections =
     let n = List.length servers in
     if n = 0 then 0 else limit_open_file () / 2 / n in
   let waiter = fst @@ Lwt.wait () in
-  Lwt.join (List.map (fun (port,kind) -> create_server ?catch ~max_connections port kind) servers) >>= fun () ->
+  Lwt.join (List.map (fun (port,kind) -> create_server ?geoip ?catch ~max_connections port kind) servers) >>= fun () ->
   waiter (* keep the server running *)
